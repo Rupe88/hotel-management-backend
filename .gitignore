@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Environment & secrets (never commit)
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Test & coverage
+coverage/
+.nyc_output/
+tmp-pgdata-e2e/
+tmp-pgdata-test/
+
+# IDE & OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Agent skills (local tooling)
+.agents/
+
+# Prisma
+generated/
+
+# Misc
+*.pem
+.cache/
