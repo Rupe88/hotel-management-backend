@@ -19,6 +19,7 @@ import {
   CreateRoomDto,
   RoomImageDto,
   RoomQueryDto,
+  UpdateRoomCategoryDto,
   UpdateRoomDto,
   UpdateRoomImageDto,
   UpdateRoomStatusDto,
@@ -42,6 +43,24 @@ export class RoomsController {
   @ApiOperation({ summary: 'Create room category (admin)' })
   createCategory(@Body() dto: CreateRoomCategoryDto) {
     return this.roomsService.createCategory(dto);
+  }
+
+  @Patch('room-categories/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update room category (admin)' })
+  updateCategory(@Param('id') id: string, @Body() dto: UpdateRoomCategoryDto) {
+    return this.roomsService.updateCategory(id, dto);
+  }
+
+  @Delete('room-categories/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete room category (admin)' })
+  removeCategory(@Param('id') id: string) {
+    return this.roomsService.removeCategory(id);
   }
 
   @Get('rooms')

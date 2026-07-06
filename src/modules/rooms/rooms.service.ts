@@ -12,6 +12,7 @@ import {
   CreateRoomDto,
   RoomImageDto,
   RoomQueryDto,
+  UpdateRoomCategoryDto,
   UpdateRoomDto,
   UpdateRoomImageDto,
   UpdateRoomStatusDto,
@@ -36,11 +37,40 @@ export class RoomsService {
   ) {}
 
   findCategories() {
-    return this.prisma.roomCategory.findMany({ orderBy: { name: 'asc' } });
+    return this.prisma.roomCategory.findMany({
+      orderBy: { name: 'asc' },
+      include: { _count: { select: { rooms: true } } },
+    });
   }
 
   createCategory(dto: CreateRoomCategoryDto) {
     return this.prisma.roomCategory.create({ data: dto });
+  }
+
+  async updateCategory(id: string, dto: UpdateRoomCategoryDto) {
+    await this.ensureCategoryExists(id);
+
+    try {
+      return await this.prisma.roomCategory.update({
+        where: { id },
+        data: dto,
+        include: { _count: { select: { rooms: true } } },
+      });
+    } catch {
+      throw new ConflictException('Category name already exists');
+    }
+  }
+
+  async removeCategory(id: string) {
+    await this.ensureCategoryExists(id);
+
+    const roomCount = await this.prisma.room.count({ where: { categoryId: id } });
+    if (roomCount > 0) {
+      throw new ConflictException('Cannot delete a category that has rooms assigned');
+    }
+
+    await this.prisma.roomCategory.delete({ where: { id } });
+    return { message: 'Category deleted successfully' };
   }
 
   async findAll(query: RoomQueryDto, pagination: PaginationDto) {
@@ -212,6 +242,14 @@ export class RoomsService {
       images,
       ...(hotel ? { hotel } : {}),
     };
+  }
+
+  private async ensureCategoryExists(id: string) {
+    const category = await this.prisma.roomCategory.findUnique({ where: { id } });
+    if (!category) {
+      throw new NotFoundException('Category not found');
+    }
+    return category;
   }
 
   private async ensureExists(id: string) {

@@ -196,3 +196,16 @@ export class CreateRoomCategoryDto {
   @IsString()
   description?: string;
 }
+
+export class UpdateRoomCategoryDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  name?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  description?: string;
+}
