@@ -113,6 +113,50 @@ export class StorageService implements OnModuleInit {
     return `${this.publicUrlBase.replace(/\/$/, '')}/${key}`;
   }
 
+  extractKeyFromUrl(url: string): string | null {
+    if (!url.startsWith('http')) {
+      return null;
+    }
+
+    const normalizedBase = this.publicUrlBase.replace(/\/$/, '');
+    if (url.startsWith(`${normalizedBase}/`)) {
+      return url.slice(normalizedBase.length + 1);
+    }
+
+    const pathStylePrefix = `/${this.bucket}/`;
+    const pathStyleIndex = url.indexOf(pathStylePrefix);
+    if (pathStyleIndex !== -1) {
+      return url.slice(pathStyleIndex + pathStylePrefix.length);
+    }
+
+    return null;
+  }
+
+  async resolveAccessibleUrl(url: string, expiresInSeconds = 86_400): Promise<string> {
+    if (!this.enabled) {
+      return url;
+    }
+
+    const key = this.extractKeyFromUrl(url);
+    if (!key) {
+      return url;
+    }
+
+    return this.getSignedUrl(key, expiresInSeconds);
+  }
+
+  async resolveAccessibleUrls<T extends { url: string }>(
+    items: T[],
+    expiresInSeconds = 86_400,
+  ): Promise<T[]> {
+    return Promise.all(
+      items.map(async (item) => ({
+        ...item,
+        url: await this.resolveAccessibleUrl(item.url, expiresInSeconds),
+      })),
+    );
+  }
+
   async uploadFile(
     file: Express.Multer.File,
     folder: StorageFolder,
@@ -129,6 +173,7 @@ export class StorageService implements OnModuleInit {
           Key: key,
           Body: file.buffer,
           ContentType: file.mimetype,
+          CacheControl: 'public, max-age=31536000, immutable',
           Metadata: {
             originalName: file.originalname,
           },

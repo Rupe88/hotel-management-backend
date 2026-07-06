@@ -2,10 +2,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { HotelStatus, Prisma } from '@prisma/client';
+import { HotelStatus, PolicyType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { paginate, PaginationDto } from '../../common/dto/pagination.dto';
 import { slugify, uniqueSlug } from '../../common/utils/helpers';
+import { StorageService } from '../storage/storage.service';
 import {
   CreateHotelDto,
   HotelAmenityDto,
@@ -13,23 +14,32 @@ import {
   HotelPolicyDto,
   HotelQueryDto,
   UpdateHotelDto,
+  UpdateHotelImageDto,
 } from './dto/hotel.dto';
 
 const hotelInclude = {
-  images: { orderBy: { sortOrder: 'asc' as const } },
+  images: { orderBy: [{ isPrimary: 'desc' as const }, { sortOrder: 'asc' as const }] },
   amenities: true,
   policies: true,
   _count: { select: { rooms: true } },
 };
 
+type HotelWithImages = {
+  images?: Array<{ url: string }>;
+  rooms?: Array<{ images?: Array<{ url: string }> }>;
+};
+
 @Injectable()
 export class HotelsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storageService: StorageService,
+  ) {}
 
   async findAll(query: HotelQueryDto, pagination: PaginationDto) {
     const { skip, take, page, limit } = paginate(pagination.page, pagination.limit);
     const where: Prisma.HotelWhereInput = {
-      status: query.status ?? HotelStatus.ACTIVE,
+      ...(query.status ? { status: query.status } : {}),
       ...(query.city ? { city: { contains: query.city, mode: 'insensitive' } } : {}),
       ...(query.country ? { country: { contains: query.country, mode: 'insensitive' } } : {}),
       ...(query.starRating ? { starRating: query.starRating } : {}),
@@ -49,7 +59,9 @@ export class HotelsService {
       this.prisma.hotel.count({ where }),
     ]);
 
-    return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
+    const resolvedItems = await Promise.all(items.map((hotel) => this.resolveHotelMedia(hotel)));
+
+    return { items: resolvedItems, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
   async findBySlug(slug: string) {
@@ -59,7 +71,10 @@ export class HotelsService {
         ...hotelInclude,
         rooms: {
           where: { status: 'AVAILABLE' },
-          include: { category: true, images: true },
+          include: {
+            category: true,
+            images: { orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }] },
+          },
         },
       },
     });
@@ -68,7 +83,7 @@ export class HotelsService {
       throw new NotFoundException('Hotel not found');
     }
 
-    return hotel;
+    return this.resolveHotelMedia(hotel);
   }
 
   async create(dto: CreateHotelDto) {
@@ -77,10 +92,12 @@ export class HotelsService {
       return !!existing;
     });
 
-    return this.prisma.hotel.create({
+    const hotel = await this.prisma.hotel.create({
       data: { ...dto, slug: slug || slugify(dto.name) },
       include: hotelInclude,
     });
+
+    return this.resolveHotelMedia(hotel);
   }
 
   async update(id: string, dto: UpdateHotelDto) {
@@ -96,11 +113,13 @@ export class HotelsService {
       });
     }
 
-    return this.prisma.hotel.update({
+    const hotel = await this.prisma.hotel.update({
       where: { id },
       data: { ...dto, ...(slug ? { slug } : {}) },
       include: hotelInclude,
     });
+
+    return this.resolveHotelMedia(hotel);
   }
 
   async remove(id: string) {
@@ -113,15 +132,37 @@ export class HotelsService {
     await this.ensureExists(hotelId);
 
     if (dto.isPrimary) {
-      await this.prisma.hotelImage.updateMany({
-        where: { hotelId },
-        data: { isPrimary: false },
-      });
+      await this.clearPrimaryImages(hotelId);
     }
 
-    return this.prisma.hotelImage.create({
+    const image = await this.prisma.hotelImage.create({
       data: { hotelId, ...dto },
     });
+
+    return this.resolveImage(image);
+  }
+
+  async updateImage(hotelId: string, imageId: string, dto: UpdateHotelImageDto) {
+    await this.ensureExists(hotelId);
+
+    const image = await this.prisma.hotelImage.findFirst({
+      where: { id: imageId, hotelId },
+    });
+
+    if (!image) {
+      throw new NotFoundException('Image not found');
+    }
+
+    if (dto.isPrimary) {
+      await this.clearPrimaryImages(hotelId);
+    }
+
+    const updated = await this.prisma.hotelImage.update({
+      where: { id: imageId },
+      data: dto,
+    });
+
+    return this.resolveImage(updated);
   }
 
   async removeImage(hotelId: string, imageId: string) {
@@ -162,7 +203,7 @@ export class HotelsService {
         hotelId,
         title: dto.title,
         description: dto.description,
-        type: (dto.type as never) ?? 'OTHER',
+        type: dto.type ?? PolicyType.OTHER,
       },
     });
   }
@@ -178,6 +219,44 @@ export class HotelsService {
 
     await this.prisma.hotelPolicy.delete({ where: { id: policyId } });
     return { message: 'Policy deleted successfully' };
+  }
+
+  private async clearPrimaryImages(hotelId: string) {
+    await this.prisma.hotelImage.updateMany({
+      where: { hotelId },
+      data: { isPrimary: false },
+    });
+  }
+
+  private async resolveImage<T extends { url: string }>(image: T) {
+    return {
+      ...image,
+      url: await this.storageService.resolveAccessibleUrl(image.url),
+    };
+  }
+
+  private async resolveHotelMedia<T extends HotelWithImages>(hotel: T): Promise<T> {
+    const [images, rooms] = await Promise.all([
+      hotel.images
+        ? this.storageService.resolveAccessibleUrls(hotel.images)
+        : Promise.resolve(hotel.images),
+      hotel.rooms
+        ? Promise.all(
+            hotel.rooms.map(async (room) => ({
+              ...room,
+              images: room.images
+                ? await this.storageService.resolveAccessibleUrls(room.images)
+                : room.images,
+            })),
+          )
+        : Promise.resolve(hotel.rooms),
+    ]);
+
+    return {
+      ...hotel,
+      images,
+      rooms,
+    };
   }
 
   private async ensureExists(id: string) {

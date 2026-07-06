@@ -1,0 +1,764 @@
+{
+  "info": {
+    "name": "Hotel Management System API",
+    "description": "Phase 1 API – NestJS + Prisma + Supabase\n\nBase URL: {{baseUrl}}/api/v1\nSwagger: {{baseUrl}}/api/docs\n\n## Auth\n- Public endpoints need no token.\n- User endpoints use Bearer {{accessToken}} (from Google sign-in or refresh).\n- Admin endpoints require an admin JWT from POST /auth/admin/login.\n\n## Typical flow\n1. Admin login → saves tokens\n2. Create hotel / rooms (admin)\n3. Search availability → create booking\n4. Upload documents → checkout payment\n5. Admin approve / verify / check-in / check-out",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8000" },
+    { "key": "accessToken", "value": "" },
+    { "key": "refreshToken", "value": "" },
+    { "key": "hotelId", "value": "" },
+    { "key": "hotelSlug", "value": "" },
+    { "key": "roomId", "value": "" },
+    { "key": "categoryId", "value": "" },
+    { "key": "bookingId", "value": "" },
+    { "key": "imageId", "value": "" },
+    { "key": "amenityId", "value": "" },
+    { "key": "policyId", "value": "" },
+    { "key": "storageKey", "value": "" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/health"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Admin Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.tokens) {",
+                  "    pm.collectionVariables.set('accessToken', json.tokens.accessToken);",
+                  "    pm.collectionVariables.set('refreshToken', json.tokens.refreshToken);",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@hotel.com\",\n  \"password\": \"your-admin-password\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/auth/admin/login"
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.tokens) {",
+                  "    pm.collectionVariables.set('accessToken', json.tokens.accessToken);",
+                  "    pm.collectionVariables.set('refreshToken', json.tokens.refreshToken);",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/auth/refresh"
+          }
+        },
+        {
+          "name": "Google OAuth Status",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/auth/google/status"
+          }
+        },
+        {
+          "name": "Google OAuth (browser redirect)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/auth/google"
+          }
+        },
+        {
+          "name": "Google Sign-In (ID token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.tokens) {",
+                  "    pm.collectionVariables.set('accessToken', json.tokens.accessToken);",
+                  "    pm.collectionVariables.set('refreshToken', json.tokens.refreshToken);",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idToken\": \"<google-id-token>\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/auth/google/token"
+          }
+        },
+        {
+          "name": "Get Profile",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/auth/profile"
+          }
+        },
+        {
+          "name": "Update Profile",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"John\",\n  \"lastName\": \"Doe\",\n  \"phone\": \"+9779800000000\",\n  \"avatar\": \"https://example.com/avatar.jpg\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/auth/profile"
+          }
+        },
+        {
+          "name": "Get Admin Profile",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/auth/admin/me"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Hotels",
+      "item": [
+        {
+          "name": "List / Search Hotels",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/hotels?page=1&limit=20&city=&country=&search=&starRating=&status=",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "hotels"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "city", "value": "" },
+                { "key": "country", "value": "" },
+                { "key": "search", "value": "" },
+                { "key": "starRating", "value": "" },
+                { "key": "status", "value": "", "description": "ACTIVE | INACTIVE | PENDING" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Hotel by Slug",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/hotels/{{hotelSlug}}"
+          }
+        },
+        {
+          "name": "Create Hotel (admin)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Grand Hotel Kathmandu\",\n  \"description\": \"Luxury stay in the heart of the city\",\n  \"address\": \"Durbar Marg\",\n  \"city\": \"Kathmandu\",\n  \"state\": \"Bagmati\",\n  \"country\": \"Nepal\",\n  \"zipCode\": \"44600\",\n  \"latitude\": 27.7172,\n  \"longitude\": 85.324,\n  \"starRating\": 4,\n  \"status\": \"ACTIVE\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/hotels"
+          }
+        },
+        {
+          "name": "Update Hotel (admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Grand Hotel Kathmandu Updated\",\n  \"starRating\": 5\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/hotels/{{hotelId}}"
+          }
+        },
+        {
+          "name": "Delete Hotel (admin)",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/v1/hotels/{{hotelId}}"
+          }
+        },
+        {
+          "name": "Add Hotel Image (admin)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"https://example.com/hotel.jpg\",\n  \"caption\": \"Lobby view\",\n  \"isPrimary\": true,\n  \"sortOrder\": 0\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/hotels/{{hotelId}}/images"
+          }
+        },
+        {
+          "name": "Delete Hotel Image (admin)",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/v1/hotels/{{hotelId}}/images/{{imageId}}"
+          }
+        },
+        {
+          "name": "Add Hotel Amenity (admin)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Free WiFi\",\n  \"icon\": \"wifi\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/hotels/{{hotelId}}/amenities"
+          }
+        },
+        {
+          "name": "Delete Hotel Amenity (admin)",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/v1/hotels/{{hotelId}}/amenities/{{amenityId}}"
+          }
+        },
+        {
+          "name": "Add Hotel Policy (admin)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Check-in Policy\",\n  \"description\": \"Check-in from 2:00 PM\",\n  \"type\": \"check-in\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/hotels/{{hotelId}}/policies"
+          }
+        },
+        {
+          "name": "Delete Hotel Policy (admin)",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/v1/hotels/{{hotelId}}/policies/{{policyId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Rooms",
+      "item": [
+        {
+          "name": "List Room Categories",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/room-categories"
+          }
+        },
+        {
+          "name": "Create Room Category (admin)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Deluxe Suite\",\n  \"description\": \"Spacious suite with city view\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/room-categories"
+          }
+        },
+        {
+          "name": "List / Search Rooms",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/rooms?page=1&limit=20&hotelId=&categoryId=&status=&minPrice=&maxPrice=&guests=",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "rooms"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "hotelId", "value": "" },
+                { "key": "categoryId", "value": "" },
+                { "key": "status", "value": "", "description": "AVAILABLE | OCCUPIED | MAINTENANCE | UNAVAILABLE" },
+                { "key": "minPrice", "value": "" },
+                { "key": "maxPrice", "value": "" },
+                { "key": "guests", "value": "" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Room Details",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/rooms/{{roomId}}"
+          }
+        },
+        {
+          "name": "Create Room (admin)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"hotelId\": \"{{hotelId}}\",\n  \"categoryId\": \"{{categoryId}}\",\n  \"name\": \"Deluxe Room 101\",\n  \"roomNumber\": \"101\",\n  \"description\": \"King bed, city view\",\n  \"capacity\": 2,\n  \"bedType\": \"King\",\n  \"sizeSqm\": 35,\n  \"pricePerNight\": 150,\n  \"status\": \"AVAILABLE\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/rooms"
+          }
+        },
+        {
+          "name": "Update Room (admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pricePerNight\": 175,\n  \"capacity\": 3\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/rooms/{{roomId}}"
+          }
+        },
+        {
+          "name": "Update Room Status (admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"MAINTENANCE\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/rooms/{{roomId}}/status"
+          }
+        },
+        {
+          "name": "Delete Room (admin)",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/v1/rooms/{{roomId}}"
+          }
+        },
+        {
+          "name": "Add Room Image (admin)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"https://example.com/room.jpg\",\n  \"isPrimary\": true,\n  \"sortOrder\": 0\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/rooms/{{roomId}}/images"
+          }
+        },
+        {
+          "name": "Delete Room Image (admin)",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/v1/rooms/{{roomId}}/images/{{imageId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Bookings",
+      "item": [
+        {
+          "name": "Search Available Rooms",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/bookings/search?checkInDate=2026-08-01&checkOutDate=2026-08-05&city=&hotelId=&guests=1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "bookings", "search"],
+              "query": [
+                { "key": "checkInDate", "value": "2026-08-01" },
+                { "key": "checkOutDate", "value": "2026-08-05" },
+                { "key": "city", "value": "" },
+                { "key": "hotelId", "value": "" },
+                { "key": "guests", "value": "1" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Booking",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roomId\": \"{{roomId}}\",\n  \"checkInDate\": \"2026-08-01\",\n  \"checkOutDate\": \"2026-08-05\",\n  \"guestCount\": 2,\n  \"specialNotes\": \"Late check-in\",\n  \"guests\": [\n    {\n      \"firstName\": \"John\",\n      \"lastName\": \"Doe\",\n      \"email\": \"john@example.com\",\n      \"phone\": \"+9779800000000\"\n    }\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/bookings"
+          }
+        },
+        {
+          "name": "My Bookings",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/bookings/my?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "bookings", "my"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Booking Details",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/bookings/{{bookingId}}"
+          }
+        },
+        {
+          "name": "Validate Booking",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/bookings/{{bookingId}}/validate"
+          }
+        },
+        {
+          "name": "Attach Guest Document",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"https://example.com/passport.pdf\",\n  \"type\": \"PASSPORT\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/bookings/{{bookingId}}/documents"
+          }
+        },
+        {
+          "name": "Attach Guest Photo",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"https://example.com/guest-photo.jpg\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/bookings/{{bookingId}}/photos"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin Bookings",
+      "item": [
+        {
+          "name": "List All Bookings",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/bookings?page=1&limit=20&status=&hotelId=&userId=",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "admin", "bookings"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "status", "value": "", "description": "PENDING | CONFIRMED | APPROVED | REJECTED | CHECKED_IN | CHECKED_OUT | COMPLETED | CANCELLED" },
+                { "key": "hotelId", "value": "" },
+                { "key": "userId", "value": "" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Booking by ID",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/admin/bookings/{{bookingId}}"
+          }
+        },
+        {
+          "name": "Approve Booking",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/api/v1/admin/bookings/{{bookingId}}/approve"
+          }
+        },
+        {
+          "name": "Reject Booking",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Room unavailable for requested dates\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/admin/bookings/{{bookingId}}/reject"
+          }
+        },
+        {
+          "name": "Verify Guest Documents",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/api/v1/admin/bookings/{{bookingId}}/verify"
+          }
+        },
+        {
+          "name": "Check In",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/api/v1/admin/bookings/{{bookingId}}/check-in"
+          }
+        },
+        {
+          "name": "Check Out",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/api/v1/admin/bookings/{{bookingId}}/check-out"
+          }
+        },
+        {
+          "name": "Complete Booking",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/api/v1/admin/bookings/{{bookingId}}/complete"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "item": [
+        {
+          "name": "Create Stripe Checkout",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookingId\": \"{{bookingId}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/payments/checkout"
+          }
+        },
+        {
+          "name": "Get Payment Status",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/payments/{{bookingId}}"
+          }
+        },
+        {
+          "name": "Stripe Webhook",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "stripe-signature", "value": "<stripe-signature>" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": "{{baseUrl}}/api/v1/payments/webhook"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin Payments",
+      "item": [
+        {
+          "name": "Get Payment Status (admin)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/admin/payments/{{bookingId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Invoices",
+      "item": [
+        {
+          "name": "Generate Invoice (admin)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/invoices/{{bookingId}}"
+          }
+        },
+        {
+          "name": "Get Invoice Metadata",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/invoices/{{bookingId}}"
+          }
+        },
+        {
+          "name": "Download Invoice PDF",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/invoices/{{bookingId}}/pdf"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reports (admin)",
+      "item": [
+        {
+          "name": "Dashboard KPIs",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/reports/dashboard"
+          }
+        },
+        {
+          "name": "Revenue Report",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/reports/revenue?from=&to=",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "reports", "revenue"],
+              "query": [
+                { "key": "from", "value": "", "description": "ISO date" },
+                { "key": "to", "value": "", "description": "ISO date" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Booking Report",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/reports/bookings?status=",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "reports", "bookings"],
+              "query": [
+                { "key": "status", "value": "" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Occupancy Report",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/reports/occupancy"
+          }
+        },
+        {
+          "name": "User Report",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/reports/users"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Storage",
+      "item": [
+        {
+          "name": "Upload File",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/storage/upload?folder=hotels",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "storage", "upload"],
+              "query": [
+                {
+                  "key": "folder",
+                  "value": "hotels",
+                  "description": "hotels | rooms | guest-documents | guest-photos | avatars | invoices"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete File (admin)",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/storage?key={{storageKey}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "storage"],
+              "query": [
+                { "key": "key", "value": "{{storageKey}}" }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

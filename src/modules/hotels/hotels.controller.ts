@@ -21,6 +21,7 @@ import {
   HotelPolicyDto,
   HotelQueryDto,
   UpdateHotelDto,
+  UpdateHotelImageDto,
 } from './dto/hotel.dto';
 
 @ApiTags('Hotels')
@@ -74,6 +75,19 @@ export class HotelsController {
   @ApiOperation({ summary: 'Add hotel gallery image (admin)' })
   addImage(@Param('id') id: string, @Body() dto: HotelImageDto) {
     return this.hotelsService.addImage(id, dto);
+  }
+
+  @Patch(':id/images/:imageId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update hotel image (caption, thumbnail, sort order)' })
+  updateImage(
+    @Param('id') id: string,
+    @Param('imageId') imageId: string,
+    @Body() dto: UpdateHotelImageDto,
+  ) {
+    return this.hotelsService.updateImage(id, imageId, dto);
   }
 
   @Delete(':id/images/:imageId')

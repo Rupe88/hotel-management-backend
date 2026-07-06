@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -9,7 +10,7 @@ import {
   Min,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { HotelStatus } from '@prisma/client';
+import { HotelStatus, PolicyType } from '@prisma/client';
 import { Type } from 'class-transformer';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
@@ -189,6 +190,24 @@ export class HotelImageDto {
   sortOrder?: number;
 }
 
+export class UpdateHotelImageDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  caption?: string;
+
+  @ApiPropertyOptional({ description: 'Mark as thumbnail / cover image' })
+  @IsOptional()
+  @IsBoolean()
+  isPrimary?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  sortOrder?: number;
+}
+
 export class HotelAmenityDto {
   @ApiProperty()
   @IsString()
@@ -212,8 +231,8 @@ export class HotelPolicyDto {
   @IsNotEmpty()
   description: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ enum: PolicyType, default: PolicyType.OTHER })
   @IsOptional()
-  @IsString()
-  type?: string;
+  @IsEnum(PolicyType)
+  type?: PolicyType;
 }
