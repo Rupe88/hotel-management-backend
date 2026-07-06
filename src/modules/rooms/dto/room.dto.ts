@@ -1,13 +1,5 @@
 import { Type } from 'class-transformer';
-import {
-  IsEnum,
-  IsInt,
-  IsNotEmpty,
-  IsNumber,
-  IsOptional,
-  IsString,
-  Min,
-} from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { RoomStatus } from '@prisma/client';
 
@@ -165,6 +157,19 @@ export class RoomImageDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  isPrimary?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  sortOrder?: number;
+}
+
+export class UpdateRoomImageDto {
+  @ApiPropertyOptional({ description: 'Mark as thumbnail / cover image' })
+  @IsOptional()
+  @IsBoolean()
   isPrimary?: boolean;
 
   @ApiPropertyOptional()

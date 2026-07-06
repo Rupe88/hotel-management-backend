@@ -6,24 +6,34 @@ import {
 import { Prisma, RoomStatus } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { paginate, PaginationDto } from '../../common/dto/pagination.dto';
+import { StorageService } from '../storage/storage.service';
 import {
   CreateRoomCategoryDto,
   CreateRoomDto,
   RoomImageDto,
   RoomQueryDto,
   UpdateRoomDto,
+  UpdateRoomImageDto,
   UpdateRoomStatusDto,
 } from './dto/room.dto';
 
 const roomInclude = {
   hotel: { select: { id: true, name: true, slug: true, city: true } },
   category: true,
-  images: { orderBy: { sortOrder: 'asc' as const } },
+  images: { orderBy: [{ isPrimary: 'desc' as const }, { sortOrder: 'asc' as const }] },
+};
+
+type RoomWithImages = {
+  images?: Array<{ url: string }>;
+  hotel?: Record<string, unknown> & { images?: Array<{ url: string }> };
 };
 
 @Injectable()
 export class RoomsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storageService: StorageService,
+  ) {}
 
   findCategories() {
     return this.prisma.roomCategory.findMany({ orderBy: { name: 'asc' } });
@@ -38,7 +48,7 @@ export class RoomsService {
     const where: Prisma.RoomWhereInput = {
       ...(query.hotelId ? { hotelId: query.hotelId } : {}),
       ...(query.categoryId ? { categoryId: query.categoryId } : {}),
-      ...(query.status ? { status: query.status } : { status: RoomStatus.AVAILABLE }),
+      ...(query.status ? { status: query.status } : {}),
       ...(query.guests ? { capacity: { gte: query.guests } } : {}),
       ...(query.minPrice || query.maxPrice
         ? {
@@ -55,7 +65,9 @@ export class RoomsService {
       this.prisma.room.count({ where }),
     ]);
 
-    return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
+    const resolvedItems = await Promise.all(items.map((room) => this.resolveRoomMedia(room)));
+
+    return { items: resolvedItems, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
   async findOne(id: string) {
@@ -67,7 +79,7 @@ export class RoomsService {
           include: {
             amenities: true,
             policies: true,
-            images: true,
+            images: { orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }] },
           },
         },
       },
@@ -77,18 +89,19 @@ export class RoomsService {
       throw new NotFoundException('Room not found');
     }
 
-    return room;
+    return this.resolveRoomMedia(room);
   }
 
   async create(dto: CreateRoomDto) {
     try {
-      return await this.prisma.room.create({
+      const room = await this.prisma.room.create({
         data: {
           ...dto,
           pricePerNight: dto.pricePerNight,
         },
         include: roomInclude,
       });
+      return this.resolveRoomMedia(room);
     } catch {
       throw new ConflictException('Room number already exists for this hotel');
     }
@@ -96,20 +109,22 @@ export class RoomsService {
 
   async update(id: string, dto: UpdateRoomDto) {
     await this.ensureExists(id);
-    return this.prisma.room.update({
+    const room = await this.prisma.room.update({
       where: { id },
       data: dto,
       include: roomInclude,
     });
+    return this.resolveRoomMedia(room);
   }
 
   async updateStatus(id: string, dto: UpdateRoomStatusDto) {
     await this.ensureExists(id);
-    return this.prisma.room.update({
+    const room = await this.prisma.room.update({
       where: { id },
       data: { status: dto.status },
       include: roomInclude,
     });
+    return this.resolveRoomMedia(room);
   }
 
   async remove(id: string) {
@@ -122,13 +137,34 @@ export class RoomsService {
     await this.ensureExists(roomId);
 
     if (dto.isPrimary) {
-      await this.prisma.roomImage.updateMany({
-        where: { roomId },
-        data: { isPrimary: false },
-      });
+      await this.clearPrimaryImages(roomId);
     }
 
-    return this.prisma.roomImage.create({ data: { roomId, ...dto } });
+    const image = await this.prisma.roomImage.create({ data: { roomId, ...dto } });
+    return this.resolveImage(image);
+  }
+
+  async updateImage(roomId: string, imageId: string, dto: UpdateRoomImageDto) {
+    await this.ensureExists(roomId);
+
+    const image = await this.prisma.roomImage.findFirst({
+      where: { id: imageId, roomId },
+    });
+
+    if (!image) {
+      throw new NotFoundException('Image not found');
+    }
+
+    if (dto.isPrimary) {
+      await this.clearPrimaryImages(roomId);
+    }
+
+    const updated = await this.prisma.roomImage.update({
+      where: { id: imageId },
+      data: dto,
+    });
+
+    return this.resolveImage(updated);
   }
 
   async removeImage(roomId: string, imageId: string) {
@@ -142,6 +178,40 @@ export class RoomsService {
 
     await this.prisma.roomImage.delete({ where: { id: imageId } });
     return { message: 'Image deleted successfully' };
+  }
+
+  private async clearPrimaryImages(roomId: string) {
+    await this.prisma.roomImage.updateMany({
+      where: { roomId },
+      data: { isPrimary: false },
+    });
+  }
+
+  private async resolveImage<T extends { url: string }>(image: T) {
+    return {
+      ...image,
+      url: await this.storageService.resolveAccessibleUrl(image.url),
+    };
+  }
+
+  private async resolveRoomMedia<T extends RoomWithImages>(room: T): Promise<T> {
+    const [images, hotel] = await Promise.all([
+      room.images
+        ? this.storageService.resolveAccessibleUrls(room.images)
+        : Promise.resolve(room.images),
+      room.hotel && 'images' in room.hotel && Array.isArray(room.hotel.images)
+        ? {
+            ...room.hotel,
+            images: await this.storageService.resolveAccessibleUrls(room.hotel.images),
+          }
+        : Promise.resolve(room.hotel),
+    ]);
+
+    return {
+      ...room,
+      images,
+      ...(hotel ? { hotel } : {}),
+    };
   }
 
   private async ensureExists(id: string) {

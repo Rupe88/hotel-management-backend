@@ -20,6 +20,7 @@ import {
   RoomImageDto,
   RoomQueryDto,
   UpdateRoomDto,
+  UpdateRoomImageDto,
   UpdateRoomStatusDto,
 } from './dto/room.dto';
 
@@ -98,6 +99,19 @@ export class RoomsController {
   @ApiOperation({ summary: 'Add room image (admin)' })
   addImage(@Param('id') id: string, @Body() dto: RoomImageDto) {
     return this.roomsService.addImage(id, dto);
+  }
+
+  @Patch('rooms/:id/images/:imageId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update room image (thumbnail, sort order)' })
+  updateImage(
+    @Param('id') id: string,
+    @Param('imageId') imageId: string,
+    @Body() dto: UpdateRoomImageDto,
+  ) {
+    return this.roomsService.updateImage(id, imageId, dto);
   }
 
   @Delete('rooms/:id/images/:imageId')
