@@ -14,6 +14,7 @@ import {
 import { PrismaService } from '../../database/prisma.service';
 import { paginate, PaginationDto } from '../../common/dto/pagination.dto';
 import { calculateNights, decimalToNumber } from '../../common/utils/helpers';
+import { StorageService } from '../storage/storage.service';
 import {
   BookingQueryDto,
   CreateBookingDto,
@@ -36,7 +37,10 @@ const bookingInclude = {
 
 @Injectable()
 export class BookingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storageService: StorageService,
+  ) {}
 
   async searchAvailability(query: SearchAvailabilityDto) {
     this.validateDates(query.checkInDate, query.checkOutDate);
@@ -83,13 +87,16 @@ export class BookingsService {
 
     const nights = calculateNights(checkIn, checkOut);
 
-    return rooms.map((room) => ({
-      ...room,
-      pricePerNight: decimalToNumber(room.pricePerNight),
-      nights,
-      estimatedTotal: decimalToNumber(room.pricePerNight) * nights,
-      available: true,
-    }));
+    return Promise.all(
+      rooms.map(async (room) => ({
+        ...room,
+        images: await this.storageService.resolveAccessibleUrls(room.images),
+        pricePerNight: decimalToNumber(room.pricePerNight),
+        nights,
+        estimatedTotal: decimalToNumber(room.pricePerNight) * nights,
+        available: true,
+      })),
+    );
   }
 
   async create(userId: string, dto: CreateBookingDto) {
