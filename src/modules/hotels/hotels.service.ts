@@ -124,7 +124,15 @@ export class HotelsService {
 
   async remove(id: string) {
     await this.ensureExists(id);
-    await this.prisma.hotel.delete({ where: { id } });
+
+    // Bookings restrict hotel/room deletes (ON DELETE RESTRICT). Remove them
+    // first so cascading hotel → rooms → images/amenities/policies can proceed.
+    // Booking children (guests, documents, photos, payment, invoice) cascade.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.booking.deleteMany({ where: { hotelId: id } });
+      await tx.hotel.delete({ where: { id } });
+    });
+
     return { message: 'Hotel deleted successfully' };
   }
 

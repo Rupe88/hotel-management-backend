@@ -159,7 +159,14 @@ export class RoomsService {
 
   async remove(id: string) {
     await this.ensureExists(id);
-    await this.prisma.room.delete({ where: { id } });
+
+    // Bookings restrict room deletes (ON DELETE RESTRICT). Remove them first
+    // so cascading room → images can proceed.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.booking.deleteMany({ where: { roomId: id } });
+      await tx.room.delete({ where: { id } });
+    });
+
     return { message: 'Room deleted successfully' };
   }
 
