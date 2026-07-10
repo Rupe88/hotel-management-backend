@@ -7,3 +7,10 @@ export class CheckoutDto {
   @IsNotEmpty()
   bookingId: string;
 }
+
+export class VerifySessionDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  sessionId: string;
+}

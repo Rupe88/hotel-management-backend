@@ -66,9 +66,11 @@ export class BookingsService {
 
     const blockedRoomIds = conflictingBookingRoomIds.map((b) => b.roomId);
 
+    // Date overlap is the source of truth. OCCUPIED rooms stay bookable for
+    // non-overlapping future dates; only hard-offline statuses are excluded.
     const rooms = await this.prisma.room.findMany({
       where: {
-        status: RoomStatus.AVAILABLE,
+        status: { in: [RoomStatus.AVAILABLE, RoomStatus.OCCUPIED] },
         id: { notIn: blockedRoomIds },
         ...(query.guests ? { capacity: { gte: query.guests } } : {}),
         ...(query.hotelId ? { hotelId: query.hotelId } : {}),
@@ -107,7 +109,11 @@ export class BookingsService {
       include: { hotel: true },
     });
 
-    if (!room || room.status !== RoomStatus.AVAILABLE) {
+    if (
+      !room ||
+      room.status === RoomStatus.MAINTENANCE ||
+      room.status === RoomStatus.UNAVAILABLE
+    ) {
       throw new BadRequestException('Room is not available');
     }
 
@@ -141,20 +147,22 @@ export class BookingsService {
     const nights = calculateNights(checkIn, checkOut);
     const totalAmount = decimalToNumber(room.pricePerNight) * nights;
 
-    return this.prisma.booking.create({
-      data: {
-        userId,
-        hotelId: room.hotelId,
-        roomId: room.id,
-        checkInDate: checkIn,
-        checkOutDate: checkOut,
-        guestCount: dto.guestCount,
-        totalAmount,
-        specialNotes: dto.specialNotes,
-        guests: { create: dto.guests },
-      },
-      include: bookingInclude,
-    });
+    return this.resolveBookingMedia(
+      await this.prisma.booking.create({
+        data: {
+          userId,
+          hotelId: room.hotelId,
+          roomId: room.id,
+          checkInDate: checkIn,
+          checkOutDate: checkOut,
+          guestCount: dto.guestCount,
+          totalAmount,
+          specialNotes: dto.specialNotes,
+          guests: { create: dto.guests },
+        },
+        include: bookingInclude,
+      }),
+    );
   }
 
   async findMyBookings(userId: string, pagination: PaginationDto) {
@@ -171,7 +179,13 @@ export class BookingsService {
       this.prisma.booking.count({ where: { userId } }),
     ]);
 
-    return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
+    return {
+      items: await Promise.all(items.map((item) => this.resolveBookingMedia(item))),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   async findAll(query: BookingQueryDto, pagination: PaginationDto) {
@@ -193,7 +207,13 @@ export class BookingsService {
       this.prisma.booking.count({ where }),
     ]);
 
-    return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
+    return {
+      items: await Promise.all(items.map((item) => this.resolveBookingMedia(item))),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   async findOne(id: string, userId: string, role: Role) {
@@ -210,7 +230,7 @@ export class BookingsService {
       throw new ForbiddenException('Access denied');
     }
 
-    return booking;
+    return this.resolveBookingMedia(booking);
   }
 
   async approve(id: string) {
@@ -227,11 +247,13 @@ export class BookingsService {
       throw new BadRequestException('Guest documents required before approval');
     }
 
-    return this.prisma.booking.update({
-      where: { id },
-      data: { status: BookingStatus.APPROVED },
-      include: bookingInclude,
-    });
+    return this.resolveBookingMedia(
+      await this.prisma.booking.update({
+        where: { id },
+        data: { status: BookingStatus.APPROVED },
+        include: bookingInclude,
+      }),
+    );
   }
 
   async reject(id: string, dto: RejectBookingDto) {
@@ -242,16 +264,18 @@ export class BookingsService {
       BookingStatus.APPROVED,
     ]);
 
-    return this.prisma.booking.update({
-      where: { id },
-      data: {
-        status: BookingStatus.REJECTED,
-        specialNotes: dto.reason
-          ? `${booking.specialNotes ?? ''}\nRejected: ${dto.reason}`.trim()
-          : booking.specialNotes,
-      },
-      include: bookingInclude,
-    });
+    return this.resolveBookingMedia(
+      await this.prisma.booking.update({
+        where: { id },
+        data: {
+          status: BookingStatus.REJECTED,
+          specialNotes: dto.reason
+            ? `${booking.specialNotes ?? ''}\nRejected: ${dto.reason}`.trim()
+            : booking.specialNotes,
+        },
+        include: bookingInclude,
+      }),
+    );
   }
 
   async verifyGuestDocuments(id: string) {
@@ -261,10 +285,12 @@ export class BookingsService {
       data: { verified: true },
     });
 
-    return this.prisma.booking.findUnique({
+    const booking = await this.prisma.booking.findUnique({
       where: { id },
       include: bookingInclude,
     });
+
+    return booking ? this.resolveBookingMedia(booking) : booking;
   }
 
   async checkIn(id: string) {
@@ -283,7 +309,7 @@ export class BookingsService {
       }),
     ]);
 
-    return updatedBooking;
+    return this.resolveBookingMedia(updatedBooking);
   }
 
   async checkOut(id: string) {
@@ -302,18 +328,20 @@ export class BookingsService {
       }),
     ]);
 
-    return updatedBooking;
+    return this.resolveBookingMedia(updatedBooking);
   }
 
   async complete(id: string) {
     const booking = await this.ensureBooking(id);
     this.assertStatus(booking.status, [BookingStatus.CHECKED_OUT]);
 
-    return this.prisma.booking.update({
-      where: { id },
-      data: { status: BookingStatus.COMPLETED },
-      include: bookingInclude,
-    });
+    return this.resolveBookingMedia(
+      await this.prisma.booking.update({
+        where: { id },
+        data: { status: BookingStatus.COMPLETED },
+        include: bookingInclude,
+      }),
+    );
   }
 
   async addDocument(bookingId: string, userId: string, dto: GuestDocumentDto) {
@@ -322,7 +350,7 @@ export class BookingsService {
       throw new ForbiddenException('Access denied');
     }
 
-    return this.prisma.guestDocument.create({
+    const document = await this.prisma.guestDocument.create({
       data: {
         bookingId,
         userId,
@@ -330,6 +358,11 @@ export class BookingsService {
         type: dto.type ?? 'ID',
       },
     });
+
+    return {
+      ...document,
+      url: await this.storageService.resolveAccessibleUrl(document.url),
+    };
   }
 
   async addPhoto(bookingId: string, userId: string, dto: GuestPhotoDto) {
@@ -338,9 +371,14 @@ export class BookingsService {
       throw new ForbiddenException('Access denied');
     }
 
-    return this.prisma.guestPhoto.create({
+    const photo = await this.prisma.guestPhoto.create({
       data: { bookingId, userId, url: dto.url },
     });
+
+    return {
+      ...photo,
+      url: await this.storageService.resolveAccessibleUrl(photo.url),
+    };
   }
 
   async validateBooking(id: string, userId: string, role: Role) {
@@ -363,11 +401,47 @@ export class BookingsService {
   }
 
   async markConfirmedAfterPayment(bookingId: string) {
-    return this.prisma.booking.update({
-      where: { id: bookingId },
-      data: { status: BookingStatus.CONFIRMED },
-      include: bookingInclude,
-    });
+    return this.resolveBookingMedia(
+      await this.prisma.booking.update({
+        where: { id: bookingId },
+        data: { status: BookingStatus.CONFIRMED },
+        include: bookingInclude,
+      }),
+    );
+  }
+
+  private async resolveBookingMedia<
+    T extends {
+      documents?: Array<{ url: string }>;
+      photos?: Array<{ url: string }>;
+      room?: { images?: Array<{ url: string }> } | null;
+    },
+  >(booking: T): Promise<T> {
+    const [documents, photos, roomImages] = await Promise.all([
+      booking.documents
+        ? this.storageService.resolveAccessibleUrls(booking.documents)
+        : Promise.resolve(booking.documents),
+      booking.photos
+        ? this.storageService.resolveAccessibleUrls(booking.photos)
+        : Promise.resolve(booking.photos),
+      booking.room?.images
+        ? this.storageService.resolveAccessibleUrls(booking.room.images)
+        : Promise.resolve(booking.room?.images),
+    ]);
+
+    return {
+      ...booking,
+      documents,
+      photos,
+      ...(booking.room
+        ? {
+            room: {
+              ...booking.room,
+              images: roomImages,
+            },
+          }
+        : {}),
+    };
   }
 
   private validateDates(checkIn: string, checkOut: string) {

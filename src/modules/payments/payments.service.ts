@@ -90,6 +90,7 @@ export class PaymentsService implements OnModuleInit {
       };
     }
 
+    const appUrl = this.configService.get<string>('appUrl');
     const session = await this.stripe.checkout.sessions.create({
       mode: 'payment',
       payment_method_types: ['card'],
@@ -107,8 +108,8 @@ export class PaymentsService implements OnModuleInit {
         },
       ],
       metadata: { bookingId, userId },
-      success_url: `${this.configService.get('appUrl')}/payments/success?bookingId=${bookingId}`,
-      cancel_url: `${this.configService.get('appUrl')}/payments/cancel?bookingId=${bookingId}`,
+      success_url: `${appUrl}/payments/success?bookingId=${bookingId}&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${appUrl}/payments/cancel?bookingId=${bookingId}`,
     });
 
     await this.prisma.payment.upsert({
@@ -147,6 +148,152 @@ export class PaymentsService implements OnModuleInit {
     return booking.payment ?? { status: PaymentStatus.PENDING, bookingId };
   }
 
+  async verifyPayment(bookingId: string, userId: string) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: { payment: true },
+    });
+
+    if (!booking) {
+      throw new NotFoundException('Booking not found');
+    }
+
+    if (booking.userId !== userId) {
+      throw new BadRequestException('Access denied');
+    }
+
+    if (!booking.payment) {
+      return {
+        bookingId,
+        status: PaymentStatus.PENDING,
+        verified: false,
+        message: 'No payment found for this booking',
+      };
+    }
+
+    if (booking.payment.status === PaymentStatus.COMPLETED) {
+      return {
+        bookingId,
+        status: PaymentStatus.COMPLETED,
+        amount: booking.payment.amount,
+        currency: booking.payment.currency,
+        paidAt: booking.payment.paidAt,
+        verified: true,
+        message: 'Payment already confirmed',
+      };
+    }
+
+    const sessionId = booking.payment.stripePaymentId;
+    if (!sessionId || sessionId.startsWith('test_')) {
+      return {
+        bookingId,
+        status: booking.payment.status,
+        amount: booking.payment.amount,
+        currency: booking.payment.currency,
+        verified: false,
+        message: 'Payment is still pending',
+      };
+    }
+
+    return this.syncCheckoutSession(sessionId, userId, bookingId);
+  }
+
+  async verifySession(sessionId: string, userId: string) {
+    return this.syncCheckoutSession(sessionId, userId);
+  }
+
+  private async syncCheckoutSession(
+    sessionId: string,
+    userId: string,
+    expectedBookingId?: string,
+  ) {
+    if (this.testMode || !this.stripe) {
+      throw new BadRequestException('Stripe is not configured');
+    }
+
+    const session = await this.stripe.checkout.sessions.retrieve(sessionId);
+    const bookingId = session.metadata?.bookingId;
+
+    if (!bookingId) {
+      throw new BadRequestException('Checkout session is missing booking metadata');
+    }
+
+    if (expectedBookingId && expectedBookingId !== bookingId) {
+      throw new BadRequestException('Session does not match this booking');
+    }
+
+    if (session.metadata?.userId && session.metadata.userId !== userId) {
+      throw new BadRequestException('Access denied');
+    }
+
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: { payment: true },
+    });
+
+    if (!booking) {
+      throw new NotFoundException('Booking not found');
+    }
+
+    if (booking.userId !== userId) {
+      throw new BadRequestException('Access denied');
+    }
+
+    const paid =
+      session.payment_status === 'paid' || session.status === 'complete';
+
+    if (paid) {
+      const payment = await this.completePaymentFromSession(bookingId, session);
+      return {
+        bookingId,
+        status: payment.status,
+        amount: payment.amount,
+        currency: payment.currency,
+        paidAt: payment.paidAt,
+        verified: true,
+        message: 'Payment confirmed',
+      };
+    }
+
+    return {
+      bookingId,
+      status: booking.payment?.status ?? PaymentStatus.PENDING,
+      amount: booking.payment?.amount,
+      currency: booking.payment?.currency,
+      verified: false,
+      message: 'Payment is still pending',
+    };
+  }
+
+  private async completePaymentFromSession(
+    bookingId: string,
+    session: Stripe.Checkout.Session,
+  ) {
+    const existing = await this.prisma.payment.findUnique({
+      where: { bookingId },
+    });
+
+    if (existing?.status === PaymentStatus.COMPLETED) {
+      return existing;
+    }
+
+    const payment = await this.prisma.payment.update({
+      where: { bookingId },
+      data: {
+        status: PaymentStatus.COMPLETED,
+        stripePaymentId:
+          typeof session.payment_intent === 'string'
+            ? session.payment_intent
+            : session.id,
+        paidAt: new Date(),
+        paymentMethod: 'card',
+      },
+    });
+
+    await this.bookingsService.markConfirmedAfterPayment(bookingId);
+    return payment;
+  }
+
   async handleWebhook(rawBody: Buffer, signature: string) {
     if (!this.stripe || !this.webhookSecret) {
       throw new BadRequestException('Stripe webhook not configured');
@@ -163,17 +310,7 @@ export class PaymentsService implements OnModuleInit {
       const bookingId = session.metadata?.bookingId;
 
       if (bookingId) {
-        await this.prisma.payment.update({
-          where: { bookingId },
-          data: {
-            status: PaymentStatus.COMPLETED,
-            stripePaymentId: session.payment_intent as string,
-            paidAt: new Date(),
-            paymentMethod: 'card',
-          },
-        });
-
-        await this.bookingsService.markConfirmedAfterPayment(bookingId);
+        await this.completePaymentFromSession(bookingId, session);
       }
     }
 

@@ -16,7 +16,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards/auth.guards';
 import { PaymentsService } from './payments.service';
-import { CheckoutDto } from './dto/payment.dto';
+import { CheckoutDto, VerifySessionDto } from './dto/payment.dto';
 
 @ApiTags('Payments')
 @Controller('payments')
@@ -29,6 +29,28 @@ export class PaymentsController {
   @ApiOperation({ summary: 'Create Stripe checkout session' })
   checkout(@CurrentUser('id') userId: string, @Body() dto: CheckoutDto) {
     return this.paymentsService.createCheckoutSession(dto.bookingId, userId);
+  }
+
+  @Post('verify-session')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Verify Stripe checkout session and sync payment' })
+  verifySession(
+    @CurrentUser('id') userId: string,
+    @Body() dto: VerifySessionDto,
+  ) {
+    return this.paymentsService.verifySession(dto.sessionId, userId);
+  }
+
+  @Post(':bookingId/verify')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Verify payment for booking via Stripe' })
+  verify(
+    @Param('bookingId') bookingId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.paymentsService.verifyPayment(bookingId, userId);
   }
 
   @Get(':bookingId')
