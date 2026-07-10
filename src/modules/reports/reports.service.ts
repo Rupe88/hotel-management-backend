@@ -10,12 +10,20 @@ export class ReportsService {
   async dashboard() {
     const [
       totalBookings,
+      pendingBookings,
       completedPayments,
       activeUsers,
       totalRooms,
       occupiedRooms,
     ] = await Promise.all([
       this.prisma.booking.count(),
+      this.prisma.booking.count({
+        where: {
+          status: {
+            in: [BookingStatus.PENDING, BookingStatus.CONFIRMED],
+          },
+        },
+      }),
       this.prisma.payment.findMany({
         where: { status: PaymentStatus.COMPLETED },
         select: { amount: true },
@@ -35,6 +43,7 @@ export class ReportsService {
 
     return {
       totalBookings,
+      pendingBookings,
       totalRevenue,
       occupancyRate,
       activeUsers,
