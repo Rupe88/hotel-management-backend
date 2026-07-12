@@ -4,8 +4,11 @@ import {
   Header,
   Param,
   Post,
+  Query,
   Res,
   UseGuards,
+  ForbiddenException,
+  NotFoundException,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
@@ -16,7 +19,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards/auth.guards';
 import { InvoicesService } from './invoices.service';
 import { PrismaService } from '../../database/prisma.service';
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { InvoiceQueryDto } from './dto/invoice.dto';
 
 @ApiTags('Invoices')
 @Controller('invoices')
@@ -73,5 +76,20 @@ export class InvoicesController {
     const { buffer, invoiceNumber } = await this.invoicesService.getPdfBuffer(bookingId);
     res.setHeader('Content-Disposition', `attachment; filename="${invoiceNumber}.pdf"`);
     res.send(buffer);
+  }
+}
+
+@ApiTags('Admin Invoices')
+@Controller('admin/invoices')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.ADMIN)
+@ApiBearerAuth()
+export class AdminInvoicesController {
+  constructor(private readonly invoicesService: InvoicesService) {}
+
+  @Get()
+  @ApiOperation({ summary: 'List invoices with search and pagination (admin)' })
+  findAll(@Query() query: InvoiceQueryDto) {
+    return this.invoicesService.findAll(query);
   }
 }

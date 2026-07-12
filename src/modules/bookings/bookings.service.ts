@@ -15,6 +15,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { paginate, PaginationDto } from '../../common/dto/pagination.dto';
 import { calculateNights, decimalToNumber } from '../../common/utils/helpers';
 import { StorageService } from '../storage/storage.service';
+import { InvoicesService } from '../invoices/invoices.service';
 import {
   BookingQueryDto,
   CreateBookingDto,
@@ -40,6 +41,7 @@ export class BookingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storageService: StorageService,
+    private readonly invoicesService: InvoicesService,
   ) {}
 
   async searchAvailability(query: SearchAvailabilityDto) {
@@ -407,7 +409,17 @@ export class BookingsService {
       }),
     ]);
 
-    return this.resolveBookingMedia(updatedBooking);
+    // Auto-generate invoice on check-out so guests can download it immediately.
+    if (!updatedBooking.invoice) {
+      await this.invoicesService.generate(id);
+    }
+
+    const refreshed = await this.prisma.booking.findUnique({
+      where: { id },
+      include: bookingInclude,
+    });
+
+    return this.resolveBookingMedia(refreshed ?? updatedBooking);
   }
 
   async complete(id: string) {
