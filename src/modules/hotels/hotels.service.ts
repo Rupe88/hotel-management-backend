@@ -55,7 +55,13 @@ export class HotelsService {
     };
 
     const [items, total] = await Promise.all([
-      this.prisma.hotel.findMany({ where, skip, take, include: hotelInclude, orderBy: { name: 'asc' } }),
+      this.prisma.hotel.findMany({
+        where,
+        skip,
+        take,
+        include: hotelInclude,
+        orderBy: { createdAt: 'desc' },
+      }),
       this.prisma.hotel.count({ where }),
     ]);
 
