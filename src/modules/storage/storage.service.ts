@@ -118,18 +118,42 @@ export class StorageService implements OnModuleInit {
       return null;
     }
 
+    let pathname: string;
+    try {
+      pathname = decodeURIComponent(new URL(url).pathname);
+    } catch {
+      return null;
+    }
+
     const normalizedBase = this.publicUrlBase.replace(/\/$/, '');
-    if (url.startsWith(`${normalizedBase}/`)) {
-      return url.slice(normalizedBase.length + 1);
+    if (url.startsWith(`${normalizedBase}/`) || pathname.startsWith(`/${this.bucket}/`)) {
+      const withoutBucket = pathname.startsWith(`/${this.bucket}/`)
+        ? pathname.slice(`/${this.bucket}/`.length)
+        : pathname.replace(/^\//, '');
+      return withoutBucket || null;
     }
 
     const pathStylePrefix = `/${this.bucket}/`;
-    const pathStyleIndex = url.indexOf(pathStylePrefix);
+    const pathStyleIndex = pathname.indexOf(pathStylePrefix);
     if (pathStyleIndex !== -1) {
-      return url.slice(pathStyleIndex + pathStylePrefix.length);
+      return pathname.slice(pathStyleIndex + pathStylePrefix.length) || null;
+    }
+
+    // Virtual-hosted–style URL whose host matches our bucket.
+    if (pathname.length > 1 && url.includes(`${this.bucket}.`)) {
+      return pathname.replace(/^\//, '') || null;
     }
 
     return null;
+  }
+
+  /** Persistable public object URL (strips signed query params). */
+  toCanonicalUrl(url: string): string {
+    const key = this.extractKeyFromUrl(url);
+    if (!key || !this.enabled) {
+      return url.split('?')[0]?.split('#')[0] ?? url;
+    }
+    return this.getPublicUrl(key);
   }
 
   async resolveAccessibleUrl(url: string, expiresInSeconds = 86_400): Promise<string> {

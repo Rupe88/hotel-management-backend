@@ -7,6 +7,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
+import { StorageService } from '../storage/storage.service';
 import { AuthTokens, JwtPayload, SafeUser } from './auth.types';
 import { LoginDto, UpdateProfileDto } from './dto/auth.dto';
 import { User } from '@prisma/client';
@@ -17,6 +18,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly storageService: StorageService,
   ) {}
 
   async adminLogin(dto: LoginDto): Promise<{ user: SafeUser; tokens: AuthTokens }> {
@@ -39,7 +41,7 @@ export class AuthService {
     }
 
     const tokens = await this.issueTokens(user);
-    return { user: this.toSafeUser(user), tokens };
+    return { user: await this.toSafeUser(user), tokens };
   }
 
   async refreshTokens(refreshToken: string): Promise<AuthTokens> {
@@ -70,9 +72,14 @@ export class AuthService {
     userId: string,
     dto: UpdateProfileDto,
   ): Promise<SafeUser> {
+    const data: UpdateProfileDto = { ...dto };
+    if (data.avatar) {
+      data.avatar = this.storageService.toCanonicalUrl(data.avatar);
+    }
+
     const user = await this.prisma.user.update({
       where: { id: userId },
-      data: dto,
+      data,
     });
 
     return this.toSafeUser(user);
@@ -80,7 +87,7 @@ export class AuthService {
 
   async loginWithGoogle(user: User): Promise<{ user: SafeUser; tokens: AuthTokens }> {
     const tokens = await this.issueTokens(user);
-    return { user: this.toSafeUser(user), tokens };
+    return { user: await this.toSafeUser(user), tokens };
   }
 
   private async issueTokens(user: User): Promise<AuthTokens> {
@@ -131,14 +138,16 @@ export class AuthService {
     return new Date(Date.now() + amount * multipliers[unit]);
   }
 
-  private toSafeUser(user: User): SafeUser {
+  private async toSafeUser(user: User): Promise<SafeUser> {
     return {
       id: user.id,
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,
       phone: user.phone,
-      avatar: user.avatar,
+      avatar: user.avatar
+        ? await this.storageService.resolveAccessibleUrl(user.avatar)
+        : null,
       role: user.role,
       emailVerified: user.emailVerified,
       createdAt: user.createdAt,
