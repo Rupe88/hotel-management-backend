@@ -72,11 +72,21 @@ export class CreateBookingDto {
   guests: BookingGuestDto[];
 }
 
-export class SearchAvailabilityDto {
-  @ApiPropertyOptional()
+export class SearchAvailabilityDto extends PaginationDto {
+  @ApiPropertyOptional({ description: 'Filter by hotel city (legacy)' })
   @IsOptional()
   @IsString()
   city?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by place (city, address, or country)' })
+  @IsOptional()
+  @IsString()
+  place?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by room or hotel name' })
+  @IsOptional()
+  @IsString()
+  name?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

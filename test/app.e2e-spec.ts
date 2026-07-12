@@ -270,7 +270,7 @@ describe('Hotel Management System (e2e)', () => {
         .get('/api/v1/bookings/search?city=Kathmandu&checkInDate=2026-09-01&checkOutDate=2026-09-03&guests=2')
         .expect(200);
 
-      expect(search.body.length).toBeGreaterThan(0);
+      expect(search.body.items.length).toBeGreaterThan(0);
 
       const booking = await request(app.getHttpServer())
         .post('/api/v1/bookings')

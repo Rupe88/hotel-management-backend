@@ -47,6 +47,7 @@ export class BookingsService {
 
     const checkIn = new Date(query.checkInDate);
     const checkOut = new Date(query.checkOutDate);
+    const { skip, take, page, limit } = paginate(query.page, query.limit ?? 12);
 
     const conflictingBookingRoomIds = await this.prisma.booking.findMany({
       where: {
@@ -65,40 +66,118 @@ export class BookingsService {
     });
 
     const blockedRoomIds = conflictingBookingRoomIds.map((b) => b.roomId);
+    const place = query.place?.trim() || query.city?.trim();
+    const name = query.name?.trim();
+
+    const hotelWhere: Prisma.HotelWhereInput = {
+      status: 'ACTIVE',
+      ...(place
+        ? {
+            OR: [
+              { city: { contains: place, mode: 'insensitive' as const } },
+              { address: { contains: place, mode: 'insensitive' as const } },
+              { country: { contains: place, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
+    };
 
     // Date overlap is the source of truth. OCCUPIED rooms stay bookable for
     // non-overlapping future dates; only hard-offline statuses are excluded.
-    const rooms = await this.prisma.room.findMany({
-      where: {
-        status: { in: [RoomStatus.AVAILABLE, RoomStatus.OCCUPIED] },
-        id: { notIn: blockedRoomIds },
-        ...(query.guests ? { capacity: { gte: query.guests } } : {}),
-        ...(query.hotelId ? { hotelId: query.hotelId } : {}),
-        hotel: {
-          status: 'ACTIVE',
-          ...(query.city ? { city: { contains: query.city, mode: 'insensitive' } } : {}),
+    const where: Prisma.RoomWhereInput = {
+      status: { in: [RoomStatus.AVAILABLE, RoomStatus.OCCUPIED] },
+      id: { notIn: blockedRoomIds },
+      ...(query.guests ? { capacity: { gte: query.guests } } : {}),
+      ...(query.hotelId ? { hotelId: query.hotelId } : {}),
+      hotel: hotelWhere,
+      ...(name
+        ? {
+            AND: [
+              {
+                OR: [
+                  { name: { contains: name, mode: 'insensitive' as const } },
+                  { hotel: { name: { contains: name, mode: 'insensitive' as const } } },
+                ],
+              },
+            ],
+          }
+        : {}),
+    };
+
+    const [rooms, total] = await Promise.all([
+      this.prisma.room.findMany({
+        where,
+        skip,
+        take,
+        include: {
+          hotel: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              city: true,
+              starRating: true,
+              images: {
+                where: { isPrimary: true },
+                take: 1,
+                orderBy: { sortOrder: 'asc' },
+              },
+            },
+          },
+          category: true,
+          images: {
+            orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }],
+            take: 1,
+          },
         },
-      },
-      include: {
-        hotel: { select: { id: true, name: true, slug: true, city: true, starRating: true } },
-        category: true,
-        images: { where: { isPrimary: true }, take: 1 },
-      },
-      orderBy: { pricePerNight: 'asc' },
-    });
+        orderBy: { pricePerNight: 'asc' },
+      }),
+      this.prisma.room.count({ where }),
+    ]);
 
     const nights = calculateNights(checkIn, checkOut);
 
-    return Promise.all(
-      rooms.map(async (room) => ({
-        ...room,
-        images: await this.storageService.resolveAccessibleUrls(room.images),
-        pricePerNight: decimalToNumber(room.pricePerNight),
-        nights,
-        estimatedTotal: decimalToNumber(room.pricePerNight) * nights,
-        available: true,
-      })),
+    const items = await Promise.all(
+      rooms.map(async (room) => {
+        const [roomImages, hotelImages] = await Promise.all([
+          this.storageService.resolveAccessibleUrls(room.images),
+          this.storageService.resolveAccessibleUrls(room.hotel.images ?? []),
+        ]);
+
+        const images =
+          roomImages.length > 0
+            ? roomImages
+            : hotelImages.map((image) => ({
+                ...image,
+                isPrimary: true,
+              }));
+
+        return {
+          ...room,
+          images,
+          hotel: {
+            id: room.hotel.id,
+            name: room.hotel.name,
+            slug: room.hotel.slug,
+            city: room.hotel.city,
+            starRating: room.hotel.starRating,
+            images: hotelImages,
+          },
+          pricePerNight: decimalToNumber(room.pricePerNight),
+          nights,
+          estimatedTotal: decimalToNumber(room.pricePerNight) * nights,
+          available: true,
+        };
+      }),
     );
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 0,
+    };
   }
 
   async create(userId: string, dto: CreateBookingDto) {

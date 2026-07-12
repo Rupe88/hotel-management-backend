@@ -301,7 +301,7 @@ async function main() {
 
     const basePrice = 60 + hotelData.starRating * 20 + (index % 5) * 5;
 
-    await prisma.room.upsert({
+    const standardRoom = await prisma.room.upsert({
       where: { hotelId_roomNumber: { hotelId: hotel.id, roomNumber: '101' } },
       update: {
         status: 'AVAILABLE',
@@ -320,7 +320,7 @@ async function main() {
       },
     });
 
-    await prisma.room.upsert({
+    const deluxeRoom = await prisma.room.upsert({
       where: { hotelId_roomNumber: { hotelId: hotel.id, roomNumber: '201' } },
       update: {
         status: 'AVAILABLE',
@@ -338,6 +338,23 @@ async function main() {
         status: 'AVAILABLE',
       },
     });
+
+    for (const room of [standardRoom, deluxeRoom]) {
+      const existingImage = await prisma.roomImage.findFirst({
+        where: { roomId: room.id, isPrimary: true },
+      });
+
+      if (!existingImage) {
+        await prisma.roomImage.create({
+          data: {
+            roomId: room.id,
+            url: SAMPLE_IMAGE,
+            isPrimary: true,
+            sortOrder: 0,
+          },
+        });
+      }
+    }
 
     createdHotels += 1;
   }
